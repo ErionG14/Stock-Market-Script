@@ -20,6 +20,29 @@ API_KEY = "gw54ry5iqial485WVE0vqdKu3tegUSHZ"
 client = RESTClient(API_KEY)
 PDF_FILENAME = f"daily_stock_report_{datetime.date.today().isoformat()}.pdf"
 
+def detect_sigma_drop(df):
+    try:
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('date', inplace=True)
+
+        weekly_close = df['close'].resample('W-FRI').last()
+        weekly_returns = weekly_close.pct_change().dropna()
+
+        if len(weekly_returns) < 2:
+            return "No Data"
+
+        mu = weekly_returns.mean()
+        sigma = weekly_returns.std()
+        latest_return = weekly_returns.iloc[-1]
+
+        if latest_return < (mu - sigma):
+            return "Abnormal Drop"
+        else:
+            return "Normal"
+    except:
+        return "Error"
+    
 # ────────────────────────────────────────────────
 # DATA FETCHING
 # ────────────────────────────────────────────────
@@ -27,7 +50,7 @@ PDF_FILENAME = f"daily_stock_report_{datetime.date.today().isoformat()}.pdf"
 def fetch_daily_data(ticker):
     try:
         today = datetime.date.today()
-        from_date = (today - datetime.timedelta(days=10)).isoformat()
+        from_date = (today - datetime.timedelta(days=90)).isoformat()
         to_date = today.isoformat()
 
         aggs = client.get_aggs(ticker, 1, 'day', from_date, to_date)
@@ -36,6 +59,7 @@ def fetch_daily_data(ticker):
 
         df = pd.DataFrame([vars(a) for a in aggs])
         df['date'] = pd.to_datetime(df['timestamp'], unit='ms').dt.date
+        sigma_signal = detect_sigma_drop(df)
 
         latest = df.iloc[-1]
         prev_close = df.iloc[-2]['close']
@@ -51,7 +75,8 @@ def fetch_daily_data(ticker):
             'Volume': f"{int(latest['volume']):,}",
             '% Change': round(change_pct, 2),
             '7d MA': round(ma_7, 2),
-            'Outlook': outlook
+            'Outlook': outlook,
+            'Sigma Signal': sigma_signal
         }
     except Exception as e:
         print(f"Error for {ticker}: {e}")
